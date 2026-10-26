@@ -18,7 +18,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:live": "node scripts/run-live-tests.mjs"
+    "test:live": "node scripts/run-live-tests.mjs",
+    "send-testnet-tx": "tsx scripts/send-testnet-transaction.ts"
   },
   "dependencies": {
     "viem": "^2.57.11"
