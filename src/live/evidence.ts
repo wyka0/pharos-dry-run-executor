@@ -76,9 +76,10 @@ export function buildEvidenceMarkdown(data: EvidenceData): string {
   const lines: string[] = [];
   lines.push('# Live Pharos Atlantic Testnet Transaction — Evidence');
   lines.push('');
-  lines.push('> Real native PHRS transfer, broadcast via viem `sendTransaction` after');
-  lines.push('> explicit `BROADCAST` confirmation. All values below are captured from the');
-  lines.push('> actual RPC transaction (`eth_getTransactionByHash`) and receipt.');
+  lines.push('> Real native PHRS transfer, signed locally with viem (private-key account)');
+  lines.push('> and submitted via `eth_sendRawTransaction` after explicit `BROADCAST`');
+  lines.push('> confirmation. All values below are captured from the actual RPC');
+  lines.push('> transaction (`eth_getTransactionByHash`) and receipt.');
   lines.push('> No private key material is included in this file.');
   lines.push('');
   lines.push('| Field | Value |');

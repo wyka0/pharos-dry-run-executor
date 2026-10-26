@@ -1,0 +1,26 @@
+{
+  "note": "Captured from actual RPC transaction and receipt. No private key material is included.",
+  "timestampIso": "2026-10-26T20:15:18.167Z",
+  "broadcastAtIso": "2026-10-26T20:14:50.623Z",
+  "networkName": "Pharos Atlantic Testnet",
+  "chainId": 688689,
+  "rpcUrl": "https://atlantic.dplabs-internal.com",
+  "sender": "0x299ce4113abf88f4997737184aa8a7a3d58ac15c",
+  "recipient": "0x2f18ddfa8ffe00c9881222658bf75f38661fd6bf",
+  "amountWei": "1000000000000000",
+  "amountPhrs": "0.001",
+  "transactionHash": "0xb4585916142d12703c45cd4bb468d91ed4548887470d9fd8c1db659734764b8f",
+  "blockNumber": "31917028",
+  "receiptStatus": "success",
+  "gasUsed": "21000",
+  "effectiveGasPriceWei": "10000000000",
+  "actualFeeWei": "210000000000000",
+  "actualFeePhrs": "0.000210000000000000",
+  "explorerUrl": "https://atlantic.pharosscan.xyz/tx/0xb4585916142d12703c45cd4bb468d91ed4548887470d9fd8c1db659734764b8f",
+  "explorerVerified": true,
+  "confirmations": "3",
+  "preBroadcastSimulation": {
+    "status": "SUCCESS",
+    "guardDecision": "GO"
+  }
+}
