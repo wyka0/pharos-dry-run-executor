@@ -1,0 +1,7 @@
+{
+  "description": "Harmless native PHRS transfer of 0.001 PHRS from a funded testnet address to the 0xdEaD address. Input is a fixture; the simulation itself runs live against the Pharos Atlantic Testnet RPC.",
+  "from": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+  "to": "0x000000000000000000000000000000000000dEaD",
+  "value": "1000000000000000",
+  "data": "0x"
+}

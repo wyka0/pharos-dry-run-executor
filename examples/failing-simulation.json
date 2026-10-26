@@ -1,0 +1,7 @@
+{
+  "description": "Deterministic revert: USDC transfer of 1 USDC from an address holding 0 USDC. The token reverts with a custom error the decoder cannot decode, so the report shows \"Revert reason unavailable\" plus the raw revert data.",
+  "from": "0x1111111111111111111111111111111111111111",
+  "to": "0xE0BE08c77f415F577A1B3A9aD7a1Df1479564ec8",
+  "value": "0",
+  "data": "0xa9059cbb000000000000000000000000000000000000000000000000000000000000dead00000000000000000000000000000000000000000000000000000000000f4240"
+}

@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+coverage/
+
+# Environment configuration — never commit real credentials.
+# This project never needs a private key, but keep .env out of git regardless.
+.env
+.env.local
+.env.*.local
+
+# Logs and OS noise
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db

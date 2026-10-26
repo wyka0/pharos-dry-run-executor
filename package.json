@@ -1,0 +1,35 @@
+{
+  "name": "dry-run-executor",
+  "version": "1.0.0",
+  "description": "Simulation-only transaction dry-run executor for Pharos Atlantic Testnet. Simulates transactions via read-only RPC, estimates gas, predicts balance changes, decodes revert reasons, and blocks unsafe execution. Never broadcasts transactions.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "bin": {
+    "dry-run-executor": "dist/cli.js"
+  },
+  "scripts": {
+    "dry-run": "tsx src/cli.ts",
+    "demo": "tsx src/cli.ts --demo",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:live": "node scripts/run-live-tests.mjs"
+  },
+  "dependencies": {
+    "viem": "^2.57.11"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.0.0",
+    "eslint": "^10.13.0",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^3.2.7"
+  }
+}
