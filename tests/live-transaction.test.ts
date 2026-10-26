@@ -320,16 +320,20 @@ describe('evidence builders', () => {
     expect(withExplorer).toContain('atlantic.pharosscan.xyz/tx/0xabc123');
   });
 
-  it('never contains key-shaped hex or key variable names', () => {
+  it('never contains key variable names or the actual key', () => {
     const text = buildEvidenceJson(base) + buildEvidenceMarkdown(base);
-    expect(text).not.toMatch(/0x[0-9a-fA-F]{64}/);
     expect(text).not.toContain('PHAROS_TESTNET_PRIVATE_KEY');
     expect(text).not.toContain(TEST_KEY);
+    expect(text).not.toContain('"privateKey"');
   });
 
-  it('assertEvidenceHasNoSecrets rejects key-shaped content', () => {
-    expect(() => assertEvidenceHasNoSecrets('key: 0x' + 'ab'.repeat(32))).toThrow();
+  it('rejects key markers and exact forbidden strings', () => {
+    expect(() => assertEvidenceHasNoSecrets('"privateKey": "0xabc"')).toThrow();
     expect(() => assertEvidenceHasNoSecrets('PHAROS_TESTNET_PRIVATE_KEY=0xabc')).toThrow();
+    expect(() => assertEvidenceHasNoSecrets('contains a seed phrase here')).toThrow();
     expect(() => assertEvidenceHasNoSecrets('safe content only')).not.toThrow();
+    // Exact-value guard: the actual key must never appear.
+    expect(() => assertEvidenceHasNoSecrets('safe content', [TEST_KEY])).not.toThrow();
+    expect(() => assertEvidenceHasNoSecrets(`leaked: ${TEST_KEY}`, [TEST_KEY])).toThrow();
   });
 });

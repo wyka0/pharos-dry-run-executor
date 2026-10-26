@@ -2,6 +2,13 @@
  * send-testnet-transaction.ts — ONE real native PHRS transaction on the
  * Pharos Atlantic Testnet, gated by explicit typed confirmation.
  *
+ * Submission method: the Atlantic testnet RPC does not support
+ * `eth_sendTransaction` (it rejects it with "invalid method"). This script
+ * therefore signs the transaction LOCALLY with viem (private-key account;
+ * the key is read from the environment only, never printed or saved) and
+ * submits the serialized bytes via `eth_sendRawTransaction`.
+ * `eth_sendTransaction` is never called.
+ *
  * ⚠️  THIS SCRIPT BROADCASTS A REAL TRANSACTION (unlike the rest of this
  * project, which is simulation-only). It never runs automatically: it is
  * not part of test, build, lint, or demo. It requires:
@@ -31,18 +38,25 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
-import {
-  createPublicClient,
-  createWalletClient,
-  http,
-} from 'viem';
+import { createPublicClient, http } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { pharosAtlantic } from '../src/rpc/client.js';
 import { runDryRun } from '../src/index.js';
 import { loadLiveTxConfig, NETWORK_NAME } from '../src/live/config.js';
 import { readConfirmation } from '../src/live/confirm.js';
 import { runPreflight } from '../src/live/preflight.js';
+import {
+  assessPendingTransactions,
+  signAndBroadcast,
+  type SignedBroadcastResult,
+} from '../src/live/broadcast.js';
 import { summarizeReceipt } from '../src/live/receipt.js';
-import { buildEvidenceJson, buildEvidenceMarkdown, type EvidenceData } from '../src/live/evidence.js';
+import {
+  assertEvidenceHasNoSecrets,
+  buildEvidenceJson,
+  buildEvidenceMarkdown,
+  type EvidenceData,
+} from '../src/live/evidence.js';
 import { formatPhrs } from '../src/simulation/calculate-cost.js';
 
 const EXPLORER_BASE_URL = 'https://atlantic.pharosscan.xyz';
@@ -79,6 +93,16 @@ async function main(): Promise<number> {
   }
   const cfg = loaded.config;
 
+  // Local account from the environment key (never printed, never saved).
+  const account = privateKeyToAccount(
+    process.env.PHAROS_TESTNET_PRIVATE_KEY!.trim() as `0x${string}`,
+  );
+  if (account.address.toLowerCase() !== cfg.sender.toLowerCase()) {
+    // Defensive: loadLiveTxConfig derives the sender from the same key.
+    console.error('SENDER DERIVATION MISMATCH — refusing to broadcast. Nothing was sent.');
+    return 1;
+  }
+
   // ---- 2. Read-only preflight against the RPC ----
   const publicClient = createPublicClient({
     chain: pharosAtlantic,
@@ -93,7 +117,35 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  // ---- 3. Pre-broadcast dry-run simulation (read-only safety check) ----
+  // ---- 3. Duplicate-send guard: check for unmined sender transactions ----
+  let nonceLatest: number;
+  let noncePending: number | null;
+  try {
+    nonceLatest = await publicClient.getTransactionCount({ address: cfg.sender });
+  } catch (err) {
+    console.error(
+      `Could not read sender nonce: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    console.error('Nothing was sent.');
+    return 1;
+  }
+  try {
+    noncePending = await publicClient.getTransactionCount({
+      address: cfg.sender,
+      blockTag: 'pending',
+    });
+  } catch {
+    noncePending = null; // checked again on any ambiguous failure below
+  }
+  const pendingCheck = assessPendingTransactions(nonceLatest, noncePending);
+  if (pendingCheck.hasPending) {
+    header('PENDING TRANSACTION DETECTED — NOTHING WAS SENT');
+    console.error(pendingCheck.detail);
+    return 1;
+  }
+  console.log(`Duplicate-send guard: ${pendingCheck.detail}`);
+
+  // ---- 4. Pre-broadcast dry-run simulation (read-only safety check) ----
   console.log('Running pre-broadcast dry-run simulation (read-only eth_call)…');
   const dry = await runDryRun(
     {
@@ -122,7 +174,7 @@ async function main(): Promise<number> {
   console.log(`Simulation: SUCCESS / GO (block ${dry.result.network.blockNumber?.toString() ?? 'n/a'}).`);
   console.log('');
 
-  // ---- 4. Confirm-before-broadcast summary ----
+  // ---- 5. Confirm-before-broadcast summary ----
   const broadcastAtIso = new Date().toISOString();
   header('TRANSACTION SUMMARY — REVIEW BEFORE CONFIRMING');
   console.log(`Network:        ${NETWORK_NAME}`);
@@ -130,6 +182,7 @@ async function main(): Promise<number> {
   console.log(`Sender:         ${cfg.sender}`);
   console.log(`Recipient:      ${cfg.recipient}`);
   console.log(`Amount:         ${cfg.amountWei.toString()} wei (${cfg.amountPhrs} PHRS)`);
+  console.log(`Nonce:          ${nonceLatest}${noncePending !== null ? ` (pending: ${noncePending})` : ''}`);
   console.log(`Estimated gas:  ${pre.estimatedGas?.toString() ?? 'n/a'} gas units`);
   console.log(
     `Gas price:      ${pre.gasPriceWei?.toString() ?? 'n/a'} wei/gas ` +
@@ -144,6 +197,10 @@ async function main(): Promise<number> {
       `(amount + estimated fee; sender balance ${pre.senderBalanceWei?.toString() ?? 'n/a'} wei)`,
   );
   console.log('');
+  console.log('Signing:    LOCAL (viem wallet client/account; private key never leaves this process)');
+  console.log('Submission: eth_sendRawTransaction (signed locally; eth_sendTransaction is NOT used —');
+  console.log('            this RPC rejects it with "invalid method")');
+  console.log('');
   console.log(`This will send REAL testnet PHRS. Type ${'BROADCAST'} to confirm.`);
   const rl = createInterface({ input, output });
   const gate = await readConfirmation(() => rl.question('>>> '));
@@ -153,30 +210,61 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  // ---- 5. Broadcast (exactly one transaction) ----
-  const walletClient = createWalletClient({
-    chain: pharosAtlantic,
-    transport: http(cfg.rpcUrl, { timeout: 30_000, retryCount: 0 }),
-    account: cfg.sender,
-  });
-
-  let hash: `0x${string}`;
-  try {
-    hash = await walletClient.sendTransaction({
-      to: cfg.recipient,
-      value: cfg.amountWei,
-      gas: pre.estimatedGas ?? undefined,
-      gasPrice: pre.gasPriceWei ?? undefined,
-    });
-  } catch (err) {
-    header('BROADCAST FAILED — NO TRANSACTION IS ON CHAIN (likely)');
-    console.error(err instanceof Error ? err.message : String(err));
-    console.error('Check the explorer for the sender address to be sure; nothing was confirmed.');
+  // ---- 6. Sign locally and submit via eth_sendRawTransaction (exactly once) ----
+  if (pre.estimatedGas === null || pre.gasPriceWei === null) {
+    // Defensive: preflight ok implies both are known.
+    console.error('Gas estimate unavailable after preflight — refusing to sign. Nothing was sent.');
     return 1;
   }
 
+  let broadcast: SignedBroadcastResult;
+  try {
+    broadcast = await signAndBroadcast(
+      account,
+      cfg.rpcUrl,
+      {
+        to: cfg.recipient,
+        value: cfg.amountWei,
+        nonce: nonceLatest,
+        gas: pre.estimatedGas,
+        gasPrice: pre.gasPriceWei,
+      },
+      publicClient,
+    );
+  } catch (err) {
+    // Ambiguous submission failure: NEVER retry automatically. Check for
+    // pending/matching transactions first to avoid duplicate sends.
+    header('SUBMISSION FAILED — NO AUTOMATIC RETRY');
+    console.error(err instanceof Error ? err.message : String(err));
+    let latestNow: number | null;
+    let pendingNow: number | null;
+    try {
+      latestNow = await publicClient.getTransactionCount({ address: cfg.sender });
+      pendingNow = await publicClient.getTransactionCount({
+        address: cfg.sender,
+        blockTag: 'pending',
+      });
+    } catch {
+      latestNow = null;
+      pendingNow = null;
+    }
+    const after = assessPendingTransactions(latestNow, pendingNow);
+    if (after.hasPending) {
+      console.error(`Possible duplicate risk: ${after.detail}`);
+    } else {
+      console.error(
+        'No unmined sender transactions detected — the transaction was not accepted by the RPC.',
+      );
+    }
+    console.error('Nothing was confirmed. No evidence was written. Re-run manually only after');
+    console.error('verifying on the explorer that no matching transaction exists.');
+    return 1;
+  }
+  const hash = broadcast.transactionHash;
+  // SAFETY: broadcast.serialized is never logged and never written to evidence.
+
   console.log('');
-  console.log(`Transaction broadcast. Hash: ${hash}`);
+  console.log(`Transaction submitted (eth_sendRawTransaction). Hash: ${hash}`);
   console.log('Waiting for the receipt…');
 
   // ---- 6. Wait for and verify the receipt ----
@@ -189,10 +277,31 @@ async function main(): Promise<number> {
   } catch (err) {
     header('RECEIPT NOT OBSERVED WITHIN TIMEOUT');
     console.error(`Transaction hash: ${hash}`);
+    // No automatic retry: check whether the transaction is known/pending first.
+    let knownToChain: boolean;
+    try {
+      const probe = await publicClient.getTransaction({ hash });
+      knownToChain = probe !== null;
+    } catch {
+      knownToChain = false;
+    }
+    try {
+      const after = assessPendingTransactions(
+        await publicClient.getTransactionCount({ address: cfg.sender }),
+        await publicClient.getTransactionCount({ address: cfg.sender, blockTag: 'pending' }),
+      );
+      if (after.hasPending) {
+        console.error(after.detail);
+      }
+    } catch {
+      // nonce check unavailable — the hash above is the source of truth
+    }
     console.error(
-      'The transaction may still be mined. Check the explorer before re-attempting. ' +
-        'No evidence file was written (no receipt was observed).',
+      knownToChain
+        ? 'The transaction is known to the node and may still be mined. Do NOT re-send the same transaction.'
+        : 'The transaction may still be mined. Check the explorer before re-attempting.',
     );
+    console.error('No evidence file was written (no receipt was observed).');
     console.error(err instanceof Error ? err.message : String(err));
     return 2;
   }
@@ -261,14 +370,41 @@ async function main(): Promise<number> {
   };
 
   mkdirSync('evidence', { recursive: true });
-  writeFileSync('evidence/live-testnet-transaction.json', buildEvidenceJson(evidence), 'utf8');
-  writeFileSync('evidence/live-testnet-transaction.md', buildEvidenceMarkdown(evidence), 'utf8');
+  const evidenceJson = buildEvidenceJson(evidence);
+  const evidenceMd = buildEvidenceMarkdown(evidence);
+  // Defensive final gate: evidence must never contain the key or signed bytes.
+  assertEvidenceHasNoSecrets(evidenceJson, [
+    process.env.PHAROS_TESTNET_PRIVATE_KEY!.trim(),
+    broadcast.serialized,
+  ]);
+  assertEvidenceHasNoSecrets(evidenceMd, [
+    process.env.PHAROS_TESTNET_PRIVATE_KEY!.trim(),
+    broadcast.serialized,
+  ]);
+  writeFileSync('evidence/live-testnet-transaction.json', evidenceJson, 'utf8');
+  writeFileSync('evidence/live-testnet-transaction.md', evidenceMd, 'utf8');
 
   // ---- 8. Report honestly ----
-  header(summary.ok ? 'RECEIPT CONFIRMED — SUCCESS' : 'RECEIPT CONFIRMED — TRANSACTION FAILED');
+  const senderMatches = summary.from?.toLowerCase() === cfg.sender.toLowerCase();
+  const recipientMatches = summary.to?.toLowerCase() === cfg.recipient.toLowerCase();
+  const valueMatches = summary.valueWei === cfg.amountWei;
+  const allVerified = summary.ok && senderMatches && recipientMatches && valueMatches;
+  header(allVerified ? 'RECEIPT CONFIRMED — SUCCESS' : 'RECEIPT OBSERVED — VERIFICATION FAILED');
   console.log(`Transaction hash:     ${hash}`);
   console.log(`Block number:         ${summary.blockNumber?.toString() ?? 'n/a'}`);
   console.log(`Receipt status:       ${summary.receiptStatus}`);
+  console.log(
+    `Sender verified:      ${summary.from ?? 'n/a'} ` +
+      `${senderMatches ? '✓ matches configured sender' : '✗ MISMATCH'}`,
+  );
+  console.log(
+    `Recipient verified:   ${summary.to ?? 'n/a'} ` +
+      `${recipientMatches ? '✓ matches configured recipient' : '✗ MISMATCH'}`,
+  );
+  console.log(
+    `Value verified:       ${summary.valueWei?.toString() ?? 'n/a'} wei ` +
+      `${valueMatches ? `✓ matches configured amount (${cfg.amountPhrs} PHRS)` : '✗ MISMATCH'}`,
+  );
   console.log(`Gas used:             ${summary.gasUsed?.toString() ?? 'n/a'}`);
   console.log(
     `Effective gas price:  ${summary.effectiveGasPriceWei?.toString() ?? 'n/a'} wei/gas`,
@@ -288,7 +424,7 @@ async function main(): Promise<number> {
   console.log('Evidence written:');
   console.log('  evidence/live-testnet-transaction.json');
   console.log('  evidence/live-testnet-transaction.md');
-  return summary.ok ? 0 : 2;
+  return allVerified ? 0 : 2;
 }
 
 main()

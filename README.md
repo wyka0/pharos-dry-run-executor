@@ -232,10 +232,15 @@ npm run send-testnet-tx
 
 The script prints the full summary (network, chain ID, sender, recipient,
 amount, estimated gas, gas price, estimated fee), asks for `BROADCAST`,
-then broadcasts via viem `sendTransaction`, waits for the receipt with
-`waitForTransactionReceipt`, verifies receipt status, block number, gas
-used, effective gas price, actual fee, and the transaction's own chain ID,
-and fetches the confirmation count.
+then signs the transaction locally with viem (private-key account; the key
+never leaves the process) and submits the serialized bytes via
+`eth_sendRawTransaction` — this RPC rejects `eth_sendTransaction` with
+"invalid method", so that method is never used. It waits for the receipt
+with `waitForTransactionReceipt`, verifies receipt status, block number,
+sender, recipient, value, gas used, effective gas price, the transaction's
+own chain ID, and fetches the confirmation count. On ambiguous submission
+failures it never retries automatically: it first checks for unmined
+sender transactions to avoid accidental duplicate sends.
 
 Exit codes: `0` = receipt confirmed success · `1` = nothing was sent ·
 `2` = broadcast happened but the receipt was not successful/observed (the
@@ -323,7 +328,10 @@ the execution guard, and the simulation-only guarantee (no broadcast
 method exists or is ever called). The live-transaction tests cover config
 validation, the `BROADCAST` gate, preflight checks, receipt verification,
 and evidence building — with generated throwaway keys, fake RPC clients,
-and **no broadcast**. Live tests only perform read-only calls.
+and **no broadcast**. The broadcast-path tests use a recording RPC
+transport that throws on `eth_sendTransaction`, proving submission happens
+exclusively via `eth_sendRawTransaction` with the chain hard-locked to
+688689 in the signature. Live tests only perform read-only calls.
 
 ## Safety limitations
 

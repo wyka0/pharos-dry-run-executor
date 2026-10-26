@@ -36,15 +36,28 @@ export interface EvidenceData {
 const SECRET_PATTERNS: RegExp[] = [
   /"privateKey"\s*:/i,
   /PHAROS_TESTNET_PRIVATE_KEY\s*=/i,
-  /0x[0-9a-fA-F]{64}/, // key-shaped hex string (64 hex chars)
   /\b(seed phrase|mnemonic)\b/i,
 ];
 
-/** Defensive self-check: the serialized evidence must never contain secret material. */
-export function assertEvidenceHasNoSecrets(text: string): void {
+/**
+ * Defensive self-check: the serialized evidence must never contain secret
+ * material. Structural patterns catch key markers; `forbidden` receives
+ * exact strings that must not appear anywhere — the script passes the raw
+ * private key and the serialized signed transaction. (Transaction hashes
+ * are 32-byte hex like private keys, so key detection cannot use length
+ * alone — the exact-value check is the precise guard.)
+ */
+export function assertEvidenceHasNoSecrets(text: string, forbidden: string[] = []): void {
   for (const pattern of SECRET_PATTERNS) {
     if (pattern.test(text)) {
       throw new Error('Evidence content failed the secret-safety check; nothing was written.');
+    }
+  }
+  for (const value of forbidden) {
+    if (value.length > 0 && text.includes(value)) {
+      throw new Error(
+        'Evidence content contains forbidden material (key or signed transaction); nothing was written.',
+      );
     }
   }
 }
