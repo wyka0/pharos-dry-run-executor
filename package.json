@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "node scripts/check-rpc-methods.mjs && vitest run",
     "test:watch": "vitest",
     "test:live": "node scripts/run-live-tests.mjs",
     "send-testnet-tx": "tsx scripts/send-testnet-transaction.ts"
